@@ -48,6 +48,7 @@ impl<'a> Iterator for Scanner<'a> {
             // Literals>
             '"' => self.consume_string(),
             '0'..='9' => self.consume_number(),
+            'a'..='z' | 'A'..='Z' | '_' => self.consume_identifier(),
 
             _ => Kind::Error {
                 message: "Uh Oh!".to_string(),
@@ -121,6 +122,34 @@ impl<'a> Scanner<'a> {
         Kind::Number(self.string.parse().unwrap())
     }
 
+    /// Consume a literal. Match against keywords.
+    fn consume_identifier(&mut self) -> Kind {
+        while is_ident_char(self.chars.peek().copied()) {
+            self.consume();
+        }
+
+        match self.string.as_ref() {
+            "and" => Kind::And,
+            "class" => Kind::Class,
+            "else" => Kind::Else,
+            "false" => Kind::False,
+            "for" => Kind::For,
+            "fun" => Kind::Fun,
+            "if" => Kind::If,
+            "nil" => Kind::Nil,
+            "or" => Kind::Or,
+            "print" => Kind::Print,
+            "return" => Kind::Return,
+            "super" => Kind::Super,
+            "this" => Kind::This,
+            "true" => Kind::True,
+            "var" => Kind::Var,
+            "while" => Kind::While,
+
+            _ => Kind::Identifier(self.string.clone()),
+        }
+    }
+
     /// Peek 'n' number of characters ahead of the current character.
     fn peek_nth(&self, n: usize) -> Option<char> {
         self.chars.clone().nth(n)
@@ -163,6 +192,17 @@ impl<'a> Scanner<'a> {
 fn is_digit(ch: Option<char>) -> bool {
     if let Some(_d @ '0'..='9') = ch {
         true
+    } else {
+        false
+    }
+}
+
+fn is_ident_char(ch: Option<char>) -> bool {
+    if let Some(c) = ch {
+        match c {
+            'a'..='z' | 'A'..='Z' | '_' => true,
+            _ => false,
+        }
     } else {
         false
     }
@@ -263,5 +303,66 @@ mod tests {
         let expected = Token::new(Kind::Number(123.456), 0..7);
 
         assert_eq!(received, expected);
+    }
+
+    #[test]
+    fn lex_identifier() {
+        let source = "ident";
+
+        let mut scanner = Scanner::new(source);
+        let received = scanner.next().unwrap();
+
+        let expected = Token::new(Kind::Identifier("ident".to_string()), 0..5);
+
+        assert_eq!(received, expected);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn lex_keywords() {
+        let mut source = String::new();
+        source.push_str("and or if else\n");
+        source.push_str("class super this\n");
+        source.push_str("true false nil\n");
+        source.push_str("for while\n");
+        source.push_str("var fun\n");
+        source.push_str("print return\n");
+
+        let scanner = Scanner::new(&source);
+        let received: Vec<Token> = scanner.collect();
+
+        let expected = vec![
+            // "and or if else"
+            Token::new(Kind::And, 0..3),
+            Token::new(Kind::Or, 4..6),
+            Token::new(Kind::If, 7..9),
+            Token::new(Kind::Else, 10..14),
+            
+            // "class super this"
+            Token::new(Kind::Class, 15..20),
+            Token::new(Kind::Super, 21..26),
+            Token::new(Kind::This, 27..31),
+            
+            // "true false nil"
+            Token::new(Kind::True, 32..36),
+            Token::new(Kind::False, 37..42),
+            Token::new(Kind::Nil, 43..46),
+            
+            // "for while"
+            Token::new(Kind::For, 47..50),
+            Token::new(Kind::While, 51..56),
+            
+            // "var fun"
+            Token::new(Kind::Var, 57..60),
+            Token::new(Kind::Fun, 61..64),
+            
+            // "print return"
+            Token::new(Kind::Print, 65..70),
+            Token::new(Kind::Return, 71..77),
+        ];
+
+        for (e, r) in expected.into_iter().zip(received) {
+            assert_eq!(e, r);
+        }
     }
 }

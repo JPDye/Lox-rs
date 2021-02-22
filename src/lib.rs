@@ -1,4 +1,4 @@
 #![allow(dead_code)]
 
-mod scanner;
-mod tokens;
+pub mod scanner;
+pub mod tokens;
