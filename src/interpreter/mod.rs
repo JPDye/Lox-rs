@@ -1,4 +1,4 @@
-use crate::ast::{Expr, ExprVisitor};
+use crate::ast::Expr;
 use crate::tokens::{Kind, Token};
 use crate::value::Value;
 
@@ -7,10 +7,10 @@ type RuntimeError = Result<Value, String>;
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn interpret(&mut self, expr: Box<Expr>) {
+    pub fn interpret(&mut self, expr: Box<Expr>) -> String {
         match self.evaluate(expr) {
-            Ok(val) => println!("{}", val),
-            Err(e) => println!("RuntimeError: {}", e),
+            Ok(val) => format!("{}", val),
+            Err(e) => format!("RuntimeError: {}", e),
         }
     }
 
@@ -22,7 +22,7 @@ impl Interpreter {
         }
     }
 
-    // Helper function for returning an error when an operands expecting two numbers doesn't receive them.
+    // Helper function for returning an error when an operand expecting two numbers doesn't receive them.
     fn number_operands_error(op: Token, l: Value, r: Value) -> RuntimeError {
         Err(format!(
             "{:?} (at {}..{}) requires {} and {} to be numbers.",
@@ -31,7 +31,17 @@ impl Interpreter {
     }
 }
 
-impl ExprVisitor for Interpreter {
+// Expression evaluation.
+impl Interpreter {
+    fn evaluate(&mut self, expr: Box<Expr>) -> RuntimeError {
+        match *expr {
+            Expr::Unary { op, expr } => self.visit_unary_expr(op, expr),
+            Expr::Binary { left, op, right } => self.visit_binary_expr(left, op, right),
+            Expr::Group(expr) => self.visit_group_expr(expr),
+            Expr::Literal(value) => self.visit_literal_expr(value),
+        }
+    }
+
     fn visit_unary_expr(&mut self, op: Token, expr: Box<Expr>) -> RuntimeError {
         let val = self.evaluate(expr)?;
 
@@ -113,5 +123,77 @@ impl ExprVisitor for Interpreter {
 
     fn visit_literal_expr(&mut self, value: Token) -> RuntimeError {
         Ok(value.into())
+    }
+}
+
+// Statement evaluation
+impl Interpreter {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{parsing_error::ParsingError, Parser};
+    use crate::scanner::Scanner;
+
+    use crate::parse_input;
+
+    #[test]
+    fn interpret_basic_arithmetic() {
+        let mut interpreter = Interpreter;
+
+        let input = "1 + 1";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("2", result);
+
+        let input = "5 / 2";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("2.5", result);
+
+        let input = "1 + 2 - 5 * 6 / 3";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("-7", result);
+
+        let input = "(9 + 5) * (2 + 4) / 3 / (6 / 3)";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("14", result);
+    }
+
+    #[test]
+    fn interpret_numeric_comparisons() {
+        let mut interpreter = Interpreter;
+
+        let input = "1 == 1";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("true", result);
+
+        let input = "1 != 1";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("false", result);
+
+        let input = "1 < 2";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("true", result);
+
+        let input = "1 <= 2";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("true", result);
+
+        let input = "1 > 2";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("false", result);
+
+        let input = "1 >= 2";
+        let (exprs, _) = parse_input(input);
+        let result = interpreter.interpret(exprs[0].clone());
+        assert_eq!("false", result);
     }
 }
