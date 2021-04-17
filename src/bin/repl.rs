@@ -1,5 +1,6 @@
+use rlox::interpreter::Interpreter;
+use rlox::parser::Parser;
 use rlox::scanner::Scanner;
-use rlox::tokens::Token;
 
 use std::io::{self, Write};
 
@@ -11,16 +12,27 @@ fn run() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
+    let mut interpreter = Interpreter;
+
     loop {
         print!("> ");
-        stdout.flush();
+        let _ = stdout.flush();
 
         let mut source = String::new();
         stdin.read_line(&mut source).unwrap();
 
         let scanner = Scanner::new(&source);
-        for token in scanner {
-            println!("{:?}", token);
+        let mut parser = Parser::new(scanner);
+        let (exprs, errors) = parser.parse();
+
+        if !errors.is_empty() {
+            for error in errors {
+                println!("{}", error);
+            }
+        } else {
+            for expr in exprs {
+                interpreter.interpret(expr);
+            }
         }
     }
 }

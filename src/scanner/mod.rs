@@ -3,6 +3,7 @@ use crate::tokens::{Kind, Token};
 use std::iter::Peekable;
 use std::str::Chars;
 
+/// An iterator over all Tokens within a given string.
 pub struct Scanner<'a> {
     index: usize,
     string: String,
@@ -239,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn lex_single_or_dual_character_operators() {
+    fn lex_one_or_two_character_operators() {
         let source = "! != = == < <= > >=";
 
         let scanner = Scanner::new(source);
