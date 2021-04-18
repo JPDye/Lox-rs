@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod errors;
 pub mod parser;
 pub mod scanner;
 pub mod tokens;
@@ -7,7 +8,8 @@ pub mod interpreter;
 pub mod value;
 
 use ast::Stmt;
-use parser::{parsing_error::ParsingError, Parser};
+use errors::ParsingError;
+use parser::Parser;
 use scanner::Scanner;
 
 /// Utility function for testing.

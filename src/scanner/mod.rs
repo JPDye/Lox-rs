@@ -1,3 +1,4 @@
+use crate::errors::ParsingError;
 use crate::tokens::{Kind, Token};
 
 use std::iter::Peekable;
@@ -51,14 +52,15 @@ impl<'a> Iterator for Scanner<'a> {
             '0'..='9' => self.consume_number(),
             'a'..='z' | 'A'..='Z' | '_' => self.consume_identifier(),
 
-            _ => Kind::Error {
-                message: "Uh Oh!".to_string(),
-                source: self.string.clone(),
-            },
+            c => Kind::Error(Box::new(ParsingError::InvalidCharacter {
+                source: c,
+                pos: self.index - 1,
+            })),
         };
 
-        // Calculate range and create token.
-        let start = self.index - self.string.len();
+        // Saturating sub to prev underflow when giving unicode characters more than 1 byte long.
+        // Perhaps should use unicode-segmentation crate to work with graphemes instead.
+        let start = self.index.saturating_sub(self.string.len());
         let token = Token::new(kind, start..self.index);
 
         // Clear current string for next token.
@@ -92,14 +94,16 @@ impl<'a> Scanner<'a> {
             self.consume();
         }
 
-        if self.chars.peek().is_none() {
-            Kind::Error {
-                message: "Unterminated string.".to_string(),
-                source: self.string.clone(),
+        match self.chars.peek() {
+            Some(_) => {
+                self.consume(); // Capture ending quote.
+                Kind::String(self.string[1..self.string.len() - 1].to_string()) // Remove surrounding quotes.
             }
-        } else {
-            self.consume(); // Capture closing quote.
-            Kind::String(self.string[1..self.string.len() - 1].to_string()) // Remove surrounding quotes.
+
+            None => Kind::Error(Box::new(ParsingError::UnterminatedString {
+                source: self.string.clone().trim().to_owned(),
+                start: self.index - self.string.len(),
+            })),
         }
     }
 

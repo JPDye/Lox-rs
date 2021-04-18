@@ -1,5 +1,4 @@
 use crate::tokens::Token;
-use crate::value::Value;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
@@ -16,9 +15,12 @@ pub enum Expr {
 
     Group(Box<Expr>),
     Literal(Token),
+    Variable(Token),
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
-    Expr(Expr),
-    Print(Expr),
+    Expr(Box<Expr>),
+    Print(Box<Expr>),
+    Variable { name: Token, initial: Expr },
 }
