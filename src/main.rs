@@ -31,7 +31,8 @@ fn main() {
     }
 
     // Execute code if it parsed correctly.
-    let mut interpreter = Interpreter;
+    let mut stdout = std::io::stdout();
+    let mut interpreter = Interpreter::new(&mut stdout);
     interpreter.interpret(stmts);
 }
 
@@ -40,7 +41,8 @@ fn repl() {
     let mut stdout = io::stdout();
 
     let mut input = String::new();
-    let mut interpreter = Interpreter;
+    let mut repl_stdout = io::stdout();
+    let mut interpreter = Interpreter::new(&mut repl_stdout);
 
     loop {
         print!("> ");

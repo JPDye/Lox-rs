@@ -22,5 +22,5 @@ pub enum Expr {
 pub enum Stmt {
     Expr(Box<Expr>),
     Print(Box<Expr>),
-    Variable { name: Token, initial: Expr },
+    Variable { name: Token, initial: Box<Expr> },
 }

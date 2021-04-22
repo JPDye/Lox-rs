@@ -102,7 +102,7 @@ impl fmt::Display for Kind {
             Self::False => write!(f, "false"),
             Self::Number(n) => write!(f, "{}", n),
             Self::String(s) => write!(f, "\"{}\"", s),
-            Self::Identifier(s) => write!(f, "{}", s),
+            Self::Identifier(s) => write!(f, "IDENT({})", s),
 
             Self::And => write!(f, "and"),
             Self::Class => write!(f, "class"),

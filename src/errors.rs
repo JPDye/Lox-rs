@@ -1,7 +1,7 @@
 use crate::tokens::Token;
+use crate::value::Value;
 
 use std::fmt;
-use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParsingError {
@@ -13,6 +13,13 @@ pub enum ParsingError {
     // Caught by Scanner
     UnterminatedString { source: String, start: usize },
     InvalidCharacter { source: char, pos: usize },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeError {
+    UndefinedVariable { received: Token },
+    InvalidOperandTypes { op: Token, types: Vec<Value> },
+    ZeroDivision { op: Token },
 }
 
 impl fmt::Display for ParsingError {
@@ -60,6 +67,44 @@ impl fmt::Display for ParsingError {
                     pos + 1,
                 )
             }
+        }
+    }
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::UndefinedVariable { received: ident } => write!(
+                    f,
+                    "RuntimeError. Undefined Variable. Variable '{}' (at {}..{}) has not been declared.",
+                    ident.kind,
+                    ident.range.start,
+                    ident.range.end
+                ),
+
+            Self::InvalidOperandTypes { op, types } => {
+                let mut type_list = String::new();
+
+                for t in types.iter().take(types.len() - 1) {
+                    type_list.push_str(&format!("{} and ", t))
+                }
+                type_list.push_str(&format!("{}", types.iter().last().unwrap()));
+
+                write!(
+                    f,
+                    "RuntimeError. Invalid Operand Types. '{}' (at {}..{}) does not support types of values '{}'",
+                    op.kind,
+                    op.range.start,
+                    op.range.end,
+                    type_list,
+                )
+            }
+
+            Self::ZeroDivision { op } => write!(f, "RuntimeError. Zero Division. Attempted zero division at {}..{}",
+                op.range.start,
+                op.range.end,
+            ),
+
         }
     }
 }

@@ -73,15 +73,20 @@ impl<'a> Parser<'a> {
 
     /// varDecl ---> "var" IDENTIFIER ( "=" expression )? ";"
     fn var_declaration(&mut self) -> StmtResult {
-        let name = self.consume(Kind::Identifier("".to_string()))?; // Yikes!
+        self.consume(Kind::Var)?;
 
+        let name = self.consume(Kind::Identifier("".to_string()))?; // Yikes!
         let mut initial = Expr::Literal(Token::new(Kind::Nil, 0..0)); // Also, yikes!
-        if self.check(&[Kind::Eq]) {
+
+        if self.consume(Kind::Eq).is_ok() {
             initial = self.expression()?;
         }
 
         self.consume(SemiColon)?;
-        Ok(Stmt::Variable { name, initial })
+        Ok(Stmt::Variable {
+            name,
+            initial: Box::new(initial),
+        })
     }
 
     /// statement ---> exprStmt | printStmt
@@ -270,14 +275,7 @@ impl<'a> Parser<'a> {
         }
 
         // Compare expected with next.
-        if peeked.unwrap().kind != expected {
-            // Compare expected with next. Variants only, no values. Catches identifiers.
-            if mem::discriminant(&peeked.unwrap().kind) == mem::discriminant(&expected) {
-                return Err(ParsingError::InvalidIdentifier {
-                    received: peeked.unwrap().clone(),
-                });
-            }
-
+        if mem::discriminant(&peeked.unwrap().kind) != mem::discriminant(&expected) {
             return Err(ParsingError::UnexpectedToken {
                 expected: format!("{}", expected),
                 received: peeked.unwrap().clone(),
@@ -430,5 +428,45 @@ mod tests {
         })));
 
         assert_eq!(received[0], expected);
+    }
+
+    #[test]
+    fn parse_variable_declaration_and_usage() {
+        let input = "var x = 5;";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Variable {
+            name: Token::new(Kind::Identifier("x".to_string()), 4..5),
+            initial: Box::new(Expr::Literal(Token::new(Kind::Number(5.0), 8..9))),
+        });
+
+        assert_eq!(stmts[0], expected);
+
+        let input = "var x = 5 + 10;";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Variable {
+            name: Token::new(Kind::Identifier("x".to_string()), 4..5),
+            initial: Box::new(Expr::Binary {
+                left: Box::new(Expr::Literal(Token::new(Kind::Number(5.0), 8..9))),
+                op: Token::new(Kind::Plus, 10..11),
+                right: Box::new(Expr::Literal(Token::new(Kind::Number(10.0), 12..14))),
+            }),
+        });
+
+        assert_eq!(stmts[0], expected);
+
+        let input = "var x = y;";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Variable {
+            name: Token::new(Kind::Identifier("x".to_string()), 4..5),
+            initial: Box::new(Expr::Variable(Token::new(
+                Kind::Identifier("y".to_string()),
+                8..9,
+            ))),
+        });
+
+        assert_eq!(stmts[0], expected);
     }
 }
