@@ -92,11 +92,8 @@ impl<W: Write> Interpreter<'_, W> {
             Expr::Literal(value) => self.visit_literal_expr(value),
 
             Expr::Variable(ident) => self.visit_variable_expr(ident),
+            Expr::Assign { name, value } => self.visit_assign_expr(name, value),
         }
-    }
-
-    fn visit_variable_expr(&mut self, ident: Token) -> RuntimeExprError {
-        Ok(self.env.get(ident)?)
     }
 
     fn visit_unary_expr(&mut self, op: Token, expr: Box<Expr>) -> RuntimeExprError {
@@ -185,6 +182,15 @@ impl<W: Write> Interpreter<'_, W> {
     fn visit_literal_expr(&mut self, value: Token) -> RuntimeExprError {
         Ok(value.into())
     }
+
+    fn visit_variable_expr(&mut self, ident: Token) -> RuntimeExprError {
+        Ok(self.env.get(ident)?)
+    }
+
+    fn visit_assign_expr(&mut self, ident: Token, value: Box<Expr>) -> RuntimeExprError {
+        let value = self.evaluate_expression(value)?;
+        Ok(self.env.assign(ident, value)?)
+    }
 }
 
 #[cfg(test)]
@@ -271,5 +277,16 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("10", output.trim());
+    }
+
+    #[test]
+    fn test_variable_assignment() {
+        let input = "\
+            var x = 1;\
+            x = 2;\
+            print x;";
+
+        let output = interpret_and_capture(input);
+        assert_eq!("2", output.trim());
     }
 }

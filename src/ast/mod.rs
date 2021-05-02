@@ -15,7 +15,12 @@ pub enum Expr {
 
     Group(Box<Expr>),
     Literal(Token),
+
     Variable(Token),
+    Assign {
+        name: Token,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

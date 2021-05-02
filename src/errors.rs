@@ -9,6 +9,7 @@ pub enum ParsingError {
     UnexpectedToken { expected: String, received: Token },
     UnexpectedEOF { expected: String },
     InvalidIdentifier { received: Token },
+    InvalidAssignmentTarget { source: Token },
 
     // Caught by Scanner
     UnterminatedString { source: String, start: usize },
@@ -45,6 +46,14 @@ impl fmt::Display for ParsingError {
                     f,
                     "ParsingError: Invalid Identifier. Expected identifier but received '{}' at {}..{}.",
                     r.kind, r.range.start, r.range.end
+                )
+            }
+
+            Self::InvalidAssignmentTarget { source: s } => {
+                write!(
+                    f,
+                    "ParsingError: Invalid Assignment Target. Did not received identifier as left operant at {}..{}",
+                    s.range.start, s.range.end,
                 )
             }
 

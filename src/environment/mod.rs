@@ -33,4 +33,18 @@ impl Environment {
             _ => unreachable!(),
         }
     }
+
+    pub fn assign(&mut self, ident: Token, value: Value) -> Result<Value, RuntimeError> {
+        match ident.kind {
+            Kind::Identifier(ref name) => {
+                if self.values.contains_key(name) {
+                    Ok(self.values.insert(name.clone(), value).unwrap())
+                } else {
+                    Err(RuntimeError::UndefinedVariable { received: ident })
+                }
+            }
+
+            _ => unreachable!(),
+        }
+    }
 }

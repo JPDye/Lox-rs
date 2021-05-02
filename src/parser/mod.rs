@@ -114,16 +114,34 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Expr(expr))
     }
 
-    /// expression ---> equality
+    /// expression ---> assignment
     fn expression(&mut self) -> ExprResult {
-        self.equality()
+        self.assignment()
+    }
+
+    /// assignment ---> equality
+    fn assignment(&mut self) -> ExprResult {
+        let expr = self.equality();
+
+        if self.check(&[Kind::Eq]) {
+            let eq = self.next();
+            let value = Box::new(self.equality()?);
+
+            return if let Ok(Expr::Variable(name)) = expr {
+                Ok(Expr::Assign { name, value })
+            } else {
+                Err(ParsingError::InvalidAssignmentTarget { source: eq })
+            };
+        }
+
+        expr
     }
 
     /// equality ---> comparison ( ( "!=" | "==" ) comparison ) *
     fn equality(&mut self) -> ExprResult {
         let mut lhs = self.comparison()?;
 
-        while self.check(&[Kind::Eq, Kind::BangEq]) {
+        while self.check(&[Kind::BangEq]) {
             let op = self.next();
             let rhs = self.comparison()?;
 
@@ -466,6 +484,19 @@ mod tests {
                 8..9,
             ))),
         });
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_variable_assignment() {
+        let input = "x = 2;";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Expr(Box::new(Expr::Assign {
+            name: Token::new(Kind::Identifier("x".to_string()), 0..1),
+            value: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 4..5))),
+        })));
 
         assert_eq!(stmts[0], expected);
     }
