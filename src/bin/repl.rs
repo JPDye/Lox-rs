@@ -31,7 +31,7 @@ fn run() {
             }
         } else {
             for expr in exprs {
-                interpreter.interpret(expr);
+                println!("{}", interpreter.interpret(expr));
             }
         }
     }
