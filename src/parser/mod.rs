@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// statement ---> exprStmt | printStmt | block
+    /// statement ---> exprStmt | ifStmt | printStmt | block
     fn statement(&mut self) -> Result<Stmt, ParsingError> {
         let peeked = self.peek();
 
@@ -99,8 +99,34 @@ impl<'a> Parser<'a> {
         match peeked.unwrap().kind {
             Kind::LeftBrace => Ok(Stmt::Block(self.block()?)),
             Kind::Print => self.print_statement(),
+            Kind::If => self.if_statement(),
             _ => self.expression_statement(),
         }
+    }
+
+    /// ifStmt ---> "if" "(" expression ")" statement ( "else" statement )?
+    fn if_statement(&mut self) -> Result<Stmt, ParsingError> {
+        self.consume(Kind::If)?;
+        self.consume(Kind::LeftParen)?;
+
+        let condition = Box::new(self.expression()?);
+
+        self.consume(Kind::RightParen)?;
+
+        let if_branch = Box::new(self.statement()?);
+
+        let else_branch = if self.check(&[Kind::Else]) {
+            self.consume(Kind::Else)?;
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+
+        Ok(Stmt::If {
+            condition,
+            if_branch,
+            else_branch,
+        })
     }
 
     /// block ---> "{" declaration* "}"
@@ -138,13 +164,13 @@ impl<'a> Parser<'a> {
         self.assignment()
     }
 
-    /// assignment ---> equality
+    /// assignment ---> Identifier "=" assignment | logicOr
     fn assignment(&mut self) -> Result<Expr, ParsingError> {
-        let expr = self.equality();
+        let expr = self.logic_or();
 
         if self.check(&[Kind::Eq]) {
             let eq = self.next();
-            let value = Box::new(self.equality()?);
+            let value = Box::new(self.logic_or()?);
 
             return if let Ok(Expr::Variable(name)) = expr {
                 Ok(Expr::Assign { name, value })
@@ -154,6 +180,42 @@ impl<'a> Parser<'a> {
         }
 
         expr
+    }
+
+    /// logicOr ---> logicAnd ( "or" logicAnd)*
+    fn logic_or(&mut self) -> Result<Expr, ParsingError> {
+        let mut lhs = self.logic_and()?;
+
+        while self.check(&[Kind::Or]) {
+            let op = self.next();
+            let rhs = self.logic_and()?;
+
+            lhs = Expr::Logical {
+                left: Box::new(lhs),
+                op,
+                right: Box::new(rhs),
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    /// logicAnd ---< equality ( "and" equality )*
+    fn logic_and(&mut self) -> Result<Expr, ParsingError> {
+        let mut lhs = self.equality()?;
+
+        while self.check(&[Kind::And]) {
+            let op = self.next();
+            let rhs = self.equality()?;
+
+            lhs = Expr::Logical {
+                left: Box::new(lhs),
+                op,
+                right: Box::new(rhs),
+            }
+        }
+
+        Ok(lhs)
     }
 
     /// equality ---> comparison ( ( "!=" | "==" ) comparison ) *
@@ -539,6 +601,54 @@ mod tests {
                 initial: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 19..20))),
             }),
         ]));
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_conditionals() {
+        let input = "\
+            if (2 == 2)\
+                print true;\
+            else \
+                print false;";
+
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::If {
+            condition: Box::new(Expr::Binary {
+                left: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 4..5))),
+                op: Token::new(Kind::DoubleEq, 6..8),
+                right: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 9..10))),
+            }),
+
+            if_branch: Box::new(Stmt::Print(Box::new(Expr::Literal(Token::new(
+                Kind::True,
+                17..21,
+            ))))),
+
+            else_branch: Some(Box::new(Stmt::Print(Box::new(Expr::Literal(Token::new(
+                Kind::False,
+                33..38,
+            )))))),
+        });
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_logical_expressions() {
+        let input = "nil or \"yes\";";
+        let (stmts, e) = parse_input(input);
+
+        let expected = Box::new(Stmt::Expr(Box::new(Expr::Logical {
+            left: Box::new(Expr::Literal(Token::new(Kind::Nil, 0..3))),
+            op: Token::new(Kind::Or, 4..6),
+            right: Box::new(Expr::Literal(Token::new(
+                Kind::String("yes".to_string()),
+                7..12,
+            ))),
+        })));
 
         assert_eq!(stmts[0], expected);
     }

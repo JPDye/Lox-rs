@@ -26,7 +26,7 @@ impl From<Token> for Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::String(s) => write!(f, "\"{}\"", s),
+            Self::String(s) => write!(f, "{}", s),
             Self::Number(n) => write!(f, "{}", n),
             Self::Boolean(b) => write!(f, "{}", b),
             Self::Nil => write!(f, "Nil"),

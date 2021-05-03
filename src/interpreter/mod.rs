@@ -29,7 +29,7 @@ impl<'a, W: Write> Interpreter<'a, W> {
     }
 
     // Helper function to determine if a Value is true. Follows Ruby convention. Everything but false and nil are true.
-    fn is_truthy(&self, kind: Value) -> bool {
+    fn is_truthy(&self, kind: &Value) -> bool {
         match kind {
             Value::Nil | Value::Boolean(false) => false,
             _ => true,
@@ -53,7 +53,29 @@ impl<W: Write> Interpreter<'_, W> {
             Stmt::Expr(expr) => self.visit_expression_statement(expr),
             Stmt::Print(expr) => self.visit_print_statement(expr),
             Stmt::Block(stmts) => self.visit_block(stmts),
+            Stmt::If {
+                condition,
+                if_branch,
+                else_branch,
+            } => self.visit_if_statement(condition, if_branch, else_branch), // Come back to this later
         }
+    }
+
+    fn visit_if_statement(
+        &mut self,
+        condition: Box<Expr>,
+        if_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    ) -> Result<(), RuntimeError> {
+        let bool = self.evaluate_expression(condition)?;
+
+        if self.is_truthy(&bool) {
+            self.execute_statement(if_branch)?;
+        } else if else_branch.is_some() {
+            self.execute_statement(else_branch.unwrap())?;
+        }
+
+        Ok(())
     }
 
     fn visit_expression_statement(&mut self, expr: Box<Expr>) -> Result<(), RuntimeError> {
@@ -99,6 +121,7 @@ impl<W: Write> Interpreter<'_, W> {
             Expr::Literal(value) => self.visit_literal_expr(value),
             Expr::Variable(ident) => self.visit_variable_usage_expr(ident),
             Expr::Assign { name, value } => self.visit_variable_assign_expr(name, value),
+            Expr::Logical { left, op, right } => self.visit_logical_expr(left, op, right),
         }
     }
 
@@ -114,7 +137,7 @@ impl<W: Write> Interpreter<'_, W> {
                 }),
             },
 
-            Kind::Bang => Ok(Value::Boolean(!self.is_truthy(val))),
+            Kind::Bang => Ok(Value::Boolean(!self.is_truthy(&val))),
             _ => unreachable!(),
         }
     }
@@ -201,6 +224,33 @@ impl<W: Write> Interpreter<'_, W> {
         let value = self.evaluate_expression(value)?;
         self.envs.assign(ident, value)
     }
+
+    fn visit_logical_expr(
+        &mut self,
+        left: Box<Expr>,
+        op: Token,
+        right: Box<Expr>,
+    ) -> Result<Value, RuntimeError> {
+        let left = self.evaluate_expression(left)?;
+
+        match op.kind {
+            Kind::Or => {
+                if self.is_truthy(&left) {
+                    return Ok(left);
+                }
+            }
+
+            Kind::And => {
+                if !self.is_truthy(&left) {
+                    return Ok(left);
+                }
+            }
+
+            _ => unreachable!(),
+        }
+
+        self.evaluate_expression(right)
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +317,7 @@ mod tests {
             print x;";
 
         let output = interpret_and_capture(input);
-        assert_eq!("\"Hello, World!\"", output.trim());
+        assert_eq!("Hello, World!", output.trim());
 
         let input = "\
             var x = 5;
@@ -311,5 +361,54 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("3", output.trim());
+    }
+
+    #[test]
+    fn test_conditional() {
+        let input = "\
+            if (2 == 2)\
+                print true;";
+
+        let output = interpret_and_capture(input);
+        assert_eq!("true", output.trim());
+
+        let input = "\
+            if (2 != 2)\
+                print true;";
+
+        let output = interpret_and_capture(input);
+        assert_eq!("", output.trim());
+
+        let input = "\
+            if (2 != 2)\
+                print true;\
+            else \
+                print false;";
+
+        let output = interpret_and_capture(input);
+        assert_eq!("false", output.trim());
+    }
+
+    #[test]
+    fn test_logical_operators() {
+        let input = "print \"hi\" or 2;";
+        let output = interpret_and_capture(input);
+        assert_eq!("hi", output.trim());
+
+        let input = "print nil or \"yes\";";
+        let output = interpret_and_capture(input);
+        assert_eq!("yes", output.trim());
+
+        let input = "print true and true;";
+        let output = interpret_and_capture(input);
+        assert_eq!("true", output.trim());
+
+        let input = "print true and false;";
+        let output = interpret_and_capture(input);
+        assert_eq!("false", output.trim());
+
+        let input = "print false and true;";
+        let output = interpret_and_capture(input);
+        assert_eq!("false", output.trim());
     }
 }
