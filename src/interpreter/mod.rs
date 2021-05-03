@@ -84,6 +84,7 @@ impl<W: Write> Interpreter<'_, W> {
             self.execute_statement(stmt)?;
         }
 
+        self.envs.pop_env();
         Ok(())
     }
 }

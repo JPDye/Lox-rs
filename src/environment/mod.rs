@@ -20,6 +20,10 @@ impl Environments {
         self.envs.push(Environment::new());
     }
 
+    pub fn pop_env(&mut self) {
+        self.envs.pop();
+    }
+
     /// Define variable within outermost environment.
     pub fn define(&mut self, ident: Token, value: Value) {
         match ident.kind {
