@@ -7,9 +7,6 @@ use crate::tokens::Kind::SemiColon;
 use std::iter::Peekable;
 use std::mem;
 
-type StmtResult = Result<Stmt, ParsingError>;
-type ExprResult = Result<Expr, ParsingError>;
-
 /// Create an Abstract Syntax Tree from a Scanner (an iterator over tokens in a string).
 /// This is a top-down, recursive descent parser. Relatively fast, efficient and easy to understand.
 pub struct Parser<'a> {
@@ -62,8 +59,8 @@ impl<'a> Parser<'a> {
         (statements, errors)
     }
 
-    /// declaration ---> varDecl | statement
-    fn declaration(&mut self) -> StmtResult {
+    /// declaration ---> varDeclaration | statement
+    fn declaration(&mut self) -> Result<Stmt, ParsingError> {
         if self.check(&[Kind::Var]) {
             self.var_declaration()
         } else {
@@ -72,7 +69,7 @@ impl<'a> Parser<'a> {
     }
 
     /// varDecl ---> "var" IDENTIFIER ( "=" expression )? ";"
-    fn var_declaration(&mut self) -> StmtResult {
+    fn var_declaration(&mut self) -> Result<Stmt, ParsingError> {
         self.consume(Kind::Var)?;
 
         let name = self.consume(Kind::Identifier("".to_string()))?; // Yikes!
@@ -89,17 +86,39 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// statement ---> exprStmt | printStmt
-    fn statement(&mut self) -> StmtResult {
-        if self.check(&[Kind::Print]) {
-            self.print_statement()
-        } else {
-            self.expression_statement()
+    /// statement ---> exprStmt | printStmt | block
+    fn statement(&mut self) -> Result<Stmt, ParsingError> {
+        let peeked = self.peek();
+
+        if peeked.is_none() {
+            return Err(ParsingError::UnexpectedEOF {
+                expected: "statement".to_string(),
+            });
+        }
+
+        match peeked.unwrap().kind {
+            Kind::LeftBrace => Ok(Stmt::Block(self.block()?)),
+            Kind::Print => self.print_statement(),
+            _ => self.expression_statement(),
         }
     }
 
+    /// block ---> "{" declaration* "}"
+    fn block(&mut self) -> Result<Vec<Box<Stmt>>, ParsingError> {
+        self.consume(Kind::LeftBrace)?;
+
+        let mut stmts = Vec::new();
+
+        while !self.check(&[Kind::RightBrace]) && !self.finished() {
+            stmts.push(Box::new(self.declaration()?));
+        }
+
+        self.consume(Kind::RightBrace)?;
+        Ok(stmts)
+    }
+
     /// printStmt ---> "print" expression ";"
-    fn print_statement(&mut self) -> StmtResult {
+    fn print_statement(&mut self) -> Result<Stmt, ParsingError> {
         self.next();
 
         let expr = Box::new(self.expression()?);
@@ -108,19 +127,19 @@ impl<'a> Parser<'a> {
     }
 
     /// exprStmt ---> expression ";"
-    fn expression_statement(&mut self) -> StmtResult {
+    fn expression_statement(&mut self) -> Result<Stmt, ParsingError> {
         let expr = Box::new(self.expression()?);
         self.consume(Kind::SemiColon)?;
         Ok(Stmt::Expr(expr))
     }
 
     /// expression ---> assignment
-    fn expression(&mut self) -> ExprResult {
+    fn expression(&mut self) -> Result<Expr, ParsingError> {
         self.assignment()
     }
 
     /// assignment ---> equality
-    fn assignment(&mut self) -> ExprResult {
+    fn assignment(&mut self) -> Result<Expr, ParsingError> {
         let expr = self.equality();
 
         if self.check(&[Kind::Eq]) {
@@ -138,7 +157,7 @@ impl<'a> Parser<'a> {
     }
 
     /// equality ---> comparison ( ( "!=" | "==" ) comparison ) *
-    fn equality(&mut self) -> ExprResult {
+    fn equality(&mut self) -> Result<Expr, ParsingError> {
         let mut lhs = self.comparison()?;
 
         while self.check(&[Kind::BangEq]) {
@@ -156,7 +175,7 @@ impl<'a> Parser<'a> {
     }
 
     /// comparison ---> term ( ( ">" | ">=" | "<" | "<=" ) term ) *
-    fn comparison(&mut self) -> ExprResult {
+    fn comparison(&mut self) -> Result<Expr, ParsingError> {
         let mut lhs = self.term()?;
 
         while self.check(&[
@@ -181,7 +200,7 @@ impl<'a> Parser<'a> {
     }
 
     /// term ---> factor ( ( "-" | "+" ) factor ) *
-    fn term(&mut self) -> ExprResult {
+    fn term(&mut self) -> Result<Expr, ParsingError> {
         let mut lhs = self.factor()?;
 
         while self.check(&[Kind::Minus, Kind::Plus]) {
@@ -199,7 +218,7 @@ impl<'a> Parser<'a> {
     }
 
     /// factor ---> unary ( ( "/" | "*" ) unary ) *
-    fn factor(&mut self) -> ExprResult {
+    fn factor(&mut self) -> Result<Expr, ParsingError> {
         let mut lhs = self.unary()?;
 
         while self.check(&[Kind::Slash, Kind::Star]) {
@@ -217,7 +236,7 @@ impl<'a> Parser<'a> {
     }
 
     /// unary ---> ( ( "-" | "!" ) unary ) | primary;
-    fn unary(&mut self) -> ExprResult {
+    fn unary(&mut self) -> Result<Expr, ParsingError> {
         if self.check(&[Kind::Minus, Kind::Bang]) {
             let op = self.next();
             let rhs = self.unary()?;
@@ -233,7 +252,7 @@ impl<'a> Parser<'a> {
     }
 
     /// primary ---> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
-    fn primary(&mut self) -> ExprResult {
+    fn primary(&mut self) -> Result<Expr, ParsingError> {
         // Check if at end of file.
         if self.peek().is_none() {
             return Err(ParsingError::UnexpectedEOF {
@@ -497,6 +516,29 @@ mod tests {
             name: Token::new(Kind::Identifier("x".to_string()), 0..1),
             value: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 4..5))),
         })));
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_blocks() {
+        let input = "{\
+                var x = 1;\
+                var y = 2;\
+            }";
+
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Block(vec![
+            Box::new(Stmt::Variable {
+                name: Token::new(Kind::Identifier("x".to_string()), 5..6),
+                initial: Box::new(Expr::Literal(Token::new(Kind::Number(1.0), 9..10))),
+            }),
+            Box::new(Stmt::Variable {
+                name: Token::new(Kind::Identifier("y".to_string()), 15..16),
+                initial: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 19..20))),
+            }),
+        ]));
 
         assert_eq!(stmts[0], expected);
     }
