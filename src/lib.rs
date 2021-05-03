@@ -1,3 +1,5 @@
+#![feature(in_band_lifetimes)]
+
 pub mod ast;
 pub mod environment;
 pub mod errors;

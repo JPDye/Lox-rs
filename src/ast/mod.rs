@@ -28,4 +28,5 @@ pub enum Stmt {
     Expr(Box<Expr>),
     Print(Box<Expr>),
     Variable { name: Token, initial: Box<Expr> },
+    Block(Vec<Box<Stmt>>),
 }

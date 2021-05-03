@@ -1,24 +1,21 @@
 use crate::ast::{Expr, Stmt};
-use crate::environment::Environment;
+use crate::environment::Environments;
 use crate::errors::RuntimeError;
 use crate::tokens::{Kind, Token};
 use crate::value::Value;
 
 use std::io::Write;
 
-type RuntimeExprError = Result<Value, RuntimeError>;
-type RuntimeStmtError = Result<(), RuntimeError>;
-
 pub struct Interpreter<'a, W: Write> {
     out: &'a mut W,
-    env: Environment,
+    envs: Environments,
 }
 
 impl<'a, W: Write> Interpreter<'a, W> {
     pub fn new(out: &'a mut W) -> Self {
         Self {
             out,
-            env: Environment::new(),
+            envs: Environments::new(),
         }
     }
 
@@ -40,63 +37,71 @@ impl<'a, W: Write> Interpreter<'a, W> {
     }
 
     // Helper function for returning an error when an operand expecting two numbers doesn't receive them.
-    fn number_operands_error(&self, op: Token, l: Value, r: Value) -> RuntimeExprError {
-        Err(RuntimeError::InvalidOperandTypes {
+    fn number_operands_error(&self, op: Token, l: Value, r: Value) -> RuntimeError {
+        RuntimeError::InvalidOperandTypes {
             op,
             types: vec![l, r],
-        })
+        }
     }
 }
 
 // Statement execution.
 impl<W: Write> Interpreter<'_, W> {
-    fn execute_statement(&mut self, stmt: Box<Stmt>) -> RuntimeStmtError {
+    fn execute_statement(&mut self, stmt: Box<Stmt>) -> Result<(), RuntimeError> {
         match *stmt {
+            Stmt::Variable { name, initial } => self.visit_variable_decl_statement(name, initial),
             Stmt::Expr(expr) => self.visit_expression_statement(expr),
             Stmt::Print(expr) => self.visit_print_statement(expr),
-            Stmt::Variable { name, initial } => self.visit_variable_statement(name, initial),
+            Stmt::Block(stmts) => self.visit_block(stmts),
         }
     }
 
-    fn visit_expression_statement(&mut self, expr: Box<Expr>) -> RuntimeStmtError {
+    fn visit_expression_statement(&mut self, expr: Box<Expr>) -> Result<(), RuntimeError> {
         self.evaluate_expression(expr)?;
         Ok(())
     }
 
-    fn visit_print_statement(&mut self, expr: Box<Expr>) -> RuntimeStmtError {
+    fn visit_print_statement(&mut self, expr: Box<Expr>) -> Result<(), RuntimeError> {
         let val = self.evaluate_expression(expr)?;
         let _ = self.out.write(format!("{}\n", val).as_bytes());
         Ok(())
     }
 
-    fn visit_variable_statement(&mut self, token: Token, expr: Box<Expr>) -> RuntimeStmtError {
-        match token.kind {
-            Kind::Identifier(name) => {
-                let value = self.evaluate_expression(expr)?;
-                self.env.define(name, value);
-                Ok(())
-            }
+    fn visit_variable_decl_statement(
+        &mut self,
+        ident: Token,
+        expr: Box<Expr>,
+    ) -> Result<(), RuntimeError> {
+        let value = self.evaluate_expression(expr)?;
+        self.envs.define(ident, value);
+        Ok(())
+    }
 
-            _ => unreachable!(),
+    fn visit_block(&mut self, stmts: Vec<Box<Stmt>>) -> Result<(), RuntimeError> {
+        self.envs.add_env();
+
+        for stmt in stmts {
+            self.execute_statement(stmt)?;
         }
+
+        Ok(())
     }
 }
 
 // Expression evaluation.
 impl<W: Write> Interpreter<'_, W> {
-    fn evaluate_expression(&mut self, expr: Box<Expr>) -> RuntimeExprError {
+    fn evaluate_expression(&mut self, expr: Box<Expr>) -> Result<Value, RuntimeError> {
         match *expr {
             Expr::Unary { op, expr } => self.visit_unary_expr(op, expr),
             Expr::Binary { left, op, right } => self.visit_binary_expr(left, op, right),
             Expr::Group(expr) => self.visit_group_expr(expr),
             Expr::Literal(value) => self.visit_literal_expr(value),
-
-            Expr::Variable(ident) => self.visit_variable_expr(ident),
-            Expr::Assign { name, value } => self.visit_assign_expr(name, value),
+            Expr::Variable(ident) => self.visit_variable_usage_expr(ident),
+            Expr::Assign { name, value } => self.visit_variable_assign_expr(name, value),
         }
     }
 
-    fn visit_unary_expr(&mut self, op: Token, expr: Box<Expr>) -> RuntimeExprError {
+    fn visit_unary_expr(&mut self, op: Token, expr: Box<Expr>) -> Result<Value, RuntimeError> {
         let val = self.evaluate_expression(expr)?;
 
         match op.kind {
@@ -115,24 +120,24 @@ impl<W: Write> Interpreter<'_, W> {
 
     fn visit_binary_expr(
         &mut self,
-        left: Box<Expr>,
+        l: Box<Expr>,
         op: Token,
-        right: Box<Expr>,
-    ) -> RuntimeExprError {
-        let left = self.evaluate_expression(left)?;
-        let right = self.evaluate_expression(right)?;
+        r: Box<Expr>,
+    ) -> Result<Value, RuntimeError> {
+        let left = self.evaluate_expression(l)?;
+        let right = self.evaluate_expression(r)?;
 
         match op.kind {
             // Minus operator only works on numbers.
             Kind::Minus => match (left.clone(), right.clone()) {
                 (Value::Number(l), Value::Number(r)) => Ok(Value::Number(l - r)),
-                _ => self.number_operands_error(op, left, right),
+                _ => Err(self.number_operands_error(op, left, right)),
             },
 
             // Star operator only works on numbers.
             Kind::Star => match (left.clone(), right.clone()) {
                 (Value::Number(l), Value::Number(r)) => Ok(Value::Number(l * r)),
-                _ => self.number_operands_error(op, left, right),
+                _ => Err(self.number_operands_error(op, left, right)),
             },
 
             // Slash operator only works on numbers. Checks for 0 division.
@@ -143,14 +148,14 @@ impl<W: Write> Interpreter<'_, W> {
                     Err(RuntimeError::ZeroDivision { op })
                 }
 
-                _ => self.number_operands_error(op, left, right),
+                _ => Err(self.number_operands_error(op, left, right)),
             },
 
             // Plus operator works on two numbers or two strings.
             Kind::Plus => match (left.clone(), right.clone()) {
                 (Value::Number(l), Value::Number(r)) => Ok(Value::Number(l + r)),
                 (Value::String(l), Value::String(r)) => Ok(Value::String(l + &r)),
-                _ => self.number_operands_error(op, left, right),
+                _ => Err(self.number_operands_error(op, left, right)),
             },
 
             // Multiple nested matches are ugly, but it stops my IDE shouting at me for duplicated code.
@@ -164,7 +169,7 @@ impl<W: Write> Interpreter<'_, W> {
                         _ => unreachable!(),
                     }),
 
-                    _ => self.number_operands_error(op, left, right),
+                    _ => Err(self.number_operands_error(op, left, right)),
                 }
             }
 
@@ -175,21 +180,25 @@ impl<W: Write> Interpreter<'_, W> {
         }
     }
 
-    fn visit_group_expr(&mut self, expr: Box<Expr>) -> RuntimeExprError {
+    fn visit_group_expr(&mut self, expr: Box<Expr>) -> Result<Value, RuntimeError> {
         self.evaluate_expression(expr)
     }
 
-    fn visit_literal_expr(&mut self, value: Token) -> RuntimeExprError {
+    fn visit_literal_expr(&mut self, value: Token) -> Result<Value, RuntimeError> {
         Ok(value.into())
     }
 
-    fn visit_variable_expr(&mut self, ident: Token) -> RuntimeExprError {
-        Ok(self.env.get(ident)?)
+    fn visit_variable_usage_expr(&mut self, ident: Token) -> Result<Value, RuntimeError> {
+        self.envs.get(ident)
     }
 
-    fn visit_assign_expr(&mut self, ident: Token, value: Box<Expr>) -> RuntimeExprError {
+    fn visit_variable_assign_expr(
+        &mut self,
+        ident: Token,
+        value: Box<Expr>,
+    ) -> Result<Value, RuntimeError> {
         let value = self.evaluate_expression(value)?;
-        Ok(self.env.assign(ident, value)?)
+        self.envs.assign(ident, value)
     }
 }
 
@@ -288,5 +297,18 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("2", output.trim());
+    }
+
+    #[test]
+    fn test_blocks() {
+        let input = "\
+            {\
+                var x = 1;\
+                var y = 2;\
+                print x + y;\
+            }";
+
+        let output = interpret_and_capture(input);
+        assert_eq!("3", output.trim());
     }
 }
