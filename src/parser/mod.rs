@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// statement ---> exprStmt | ifStmt | printStmt | block
+    /// statement ---> exprStmt | ifStmt | printStmt | whileStmt | block
     fn statement(&mut self) -> Result<Stmt, ParsingError> {
         let peeked = self.peek();
 
@@ -100,6 +100,7 @@ impl<'a> Parser<'a> {
             Kind::LeftBrace => Ok(Stmt::Block(self.block()?)),
             Kind::Print => self.print_statement(),
             Kind::If => self.if_statement(),
+            Kind::While => self.while_statement(),
             _ => self.expression_statement(),
         }
     }
@@ -127,6 +128,20 @@ impl<'a> Parser<'a> {
             if_branch,
             else_branch,
         })
+    }
+
+    ///  whileStmt ---> "while" "(" expression ")" statement
+    fn while_statement(&mut self) -> Result<Stmt, ParsingError> {
+        self.consume(Kind::While)?;
+        self.consume(Kind::LeftParen)?;
+
+        let condition = Box::new(self.expression()?);
+
+        self.consume(Kind::RightParen)?;
+
+        let body = Box::new(self.statement()?);
+
+        Ok(Stmt::While { condition, body })
     }
 
     /// block ---> "{" declaration* "}"
@@ -639,7 +654,7 @@ mod tests {
     #[test]
     fn parse_logical_expressions() {
         let input = "nil or \"yes\";";
-        let (stmts, e) = parse_input(input);
+        let (stmts, _) = parse_input(input);
 
         let expected = Box::new(Stmt::Expr(Box::new(Expr::Logical {
             left: Box::new(Expr::Literal(Token::new(Kind::Nil, 0..3))),
@@ -649,6 +664,44 @@ mod tests {
                 7..12,
             ))),
         })));
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_while_statement() {
+        let input = "\
+            while (1 + 1 == 2) {\
+                print \"Hello\";\
+                print 13579;\
+            }";
+
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::While {
+            condition: Box::new(Expr::Binary {
+                left: Box::new(Expr::Binary {
+                    left: Box::new(Expr::Literal(Token::new(Kind::Number(1.0), 7..8))),
+                    op: Token::new(Kind::Plus, 9..10),
+                    right: Box::new(Expr::Literal(Token::new(Kind::Number(1.0), 11..12))),
+                }),
+
+                op: Token::new(Kind::DoubleEq, 13..15),
+
+                right: Box::new(Expr::Literal(Token::new(Kind::Number(2.0), 16..17))),
+            }),
+
+            body: Box::new(Stmt::Block(vec![
+                Box::new(Stmt::Print(Box::new(Expr::Literal(Token::new(
+                    Kind::String("Hello".to_string()),
+                    26..33,
+                ))))),
+                Box::new(Stmt::Print(Box::new(Expr::Literal(Token::new(
+                    Kind::Number(13579.0),
+                    40..45,
+                ))))),
+            ])),
+        });
 
         assert_eq!(stmts[0], expected);
     }

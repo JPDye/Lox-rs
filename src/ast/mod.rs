@@ -45,4 +45,9 @@ pub enum Stmt {
         if_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
+
+    While {
+        condition: Box<Expr>,
+        body: Box<Stmt>,
+    },
 }
