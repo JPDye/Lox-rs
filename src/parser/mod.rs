@@ -86,7 +86,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// statement ---> exprStmt | ifStmt | printStmt | whileStmt | block
+
+    /// statement ---> exprStmt | forStmt | ifStmt | printStmt | whileStmt | block
     fn statement(&mut self) -> Result<Stmt, ParsingError> {
         let peeked = self.peek();
 
@@ -101,8 +102,96 @@ impl<'a> Parser<'a> {
             Kind::Print => self.print_statement(),
             Kind::If => self.if_statement(),
             Kind::While => self.while_statement(),
+            Kind::For => self.for_statement(),
             _ => self.expression_statement(),
         }
+    }
+
+    /// forStmt ---> "for" "(" ( varDecl | exprStmt | ";") expression? ";" expression? ")" statement
+    fn for_statement(&mut self) -> Result<Stmt, ParsingError> {
+        // Parse the for loop
+        // ------------------
+
+        // Consume the required opening tokens
+        self.consume(Kind::For)?;
+        self.consume(Kind::LeftParen)?;
+
+        // TODO: This is ripe for being made a method. Replace self.is_finished() perhaps? CBA right now.
+        // Check previous token consumption hasn't put us at EOF
+        let peeked = self.peek().ok_or(ParsingError::UnexpectedEOF {
+            expected: "initialiser".to_string(),
+        })?;
+
+        // Parse optional initialiser
+        let opt_initialiser = match peeked.kind {
+            Kind::SemiColon => None,
+            Kind::Var => Some(self.var_declaration()?),
+            _ => Some(self.expression_statement()?),
+        };
+
+        // Check previous token consumption hasn't put us at EOF
+        let peeked = self.peek().ok_or(ParsingError::UnexpectedEOF {
+            expected: "conditional".to_string(),
+        })?;
+
+        // Parse optional condition
+        let opt_condition = match peeked.kind {
+            Kind::SemiColon => None,
+            _ => Some(self.expression()?),
+        };
+
+        // Consume semicolon regardless of condition's presence.
+        self.consume(Kind::SemiColon)?;
+
+        // Check previous token consumption hasn't put us at EOF
+        let peeked = self.peek().ok_or(ParsingError::UnexpectedEOF {
+            expected: "incremental expression".to_string(),
+        })?;
+
+        // Parse optional increment
+        let opt_increment = match peeked.kind {
+            Kind::RightParen => None,
+            _ => Some(self.expression()?),
+        };
+
+        // Consume semicolon regardless of condition's presence.
+        self.consume(Kind::SemiColon)?;
+
+        // Consume closing paren of the "header".
+        self.consume(Kind::RightParen)?;
+
+        // Parse body of for loop.
+        let body = self.statement()?;
+
+        // Desugar the for loop into a while statement.
+        // --------------------------------------------
+
+        // Optional incrementer gets placed at end of the body of the for loop.
+        let while_body = {
+            let mut while_body = vec![Box::new(body)];
+
+            if let Some(increment) = opt_increment {
+                while_body.push(Box::new(Stmt::Expr(Box::new(increment))));
+            }
+
+            Stmt::Block(while_body)
+        };
+
+        // Optional condition gets handled. None is converted to true.
+        let while_stmt = {
+            let while_cond = opt_condition.unwrap_or(Expr::Literal(Token::new(Kind::True, 0..0)));
+
+            Stmt::While {
+                condition: Box::new(while_cond),
+                body: Box::new(while_body),
+            }
+        };
+
+        // Optional initialiser gets place before while loop and both statements get wrapped in a block.
+        Ok(match opt_initialiser {
+            Some(initialiser) => Stmt::Block(vec![Box::new(initialiser), Box::new(while_stmt)]),
+            None => while_stmt,
+        })
     }
 
     /// ifStmt ---> "if" "(" expression ")" statement ( "else" statement )?
@@ -331,11 +420,9 @@ impl<'a> Parser<'a> {
     /// primary ---> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
     fn primary(&mut self) -> Result<Expr, ParsingError> {
         // Check if at end of file.
-        if self.peek().is_none() {
-            return Err(ParsingError::UnexpectedEOF {
-                expected: "value or parenthesised expression".to_string(),
-            });
-        }
+        self.peek().ok_or(ParsingError::UnexpectedEOF {
+            expected: "value or parenthesised expression".to_string(),
+        })?;
 
         match self.peek().unwrap().kind {
             // Handle literal values.
@@ -379,20 +466,16 @@ impl<'a> Parser<'a> {
 
     /// Attempt to consume an expected token. Return an error (UnexpectedToken) if it cannot.
     fn consume(&mut self, expected: Kind) -> Result<Token, ParsingError> {
-        let peeked = self.peek();
-
         // Check if at end of file.
-        if peeked.is_none() {
-            return Err(ParsingError::UnexpectedEOF {
-                expected: format!("{}", expected),
-            });
-        }
+        let peeked = self.peek().ok_or(ParsingError::UnexpectedEOF {
+            expected: format!("{}", expected),
+        })?;
 
         // Compare expected with next.
-        if mem::discriminant(&peeked.unwrap().kind) != mem::discriminant(&expected) {
+        if mem::discriminant(&peeked.kind) != mem::discriminant(&expected) {
             return Err(ParsingError::UnexpectedToken {
                 expected: format!("{}", expected),
-                received: peeked.unwrap().clone(),
+                received: peeked.clone(),
             });
         }
 
@@ -702,6 +785,55 @@ mod tests {
                 ))))),
             ])),
         });
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_for_statement() {
+        let input = "\
+        for (var x = 0; x < 5; x = x + 1) {\
+            print x;\
+        }";
+
+        let (stmts, e) = parse_input(input);
+
+        println!("{:?}", e);
+
+        let expected = Box::new(Stmt::Block(vec![
+            Box::new(Stmt::Variable {
+                name: Token::new(Kind::Identifier("x".to_string()), 9..10),
+                initial: Box::new(Expr::Literal(Token::new(Kind::Number(0.0), 13..14))),
+            }),
+            Box::new(Stmt::While {
+                condition: Box::new(Expr::Binary {
+                    left: Box::new(Expr::Variable(Token::new(
+                        Kind::Identifier("x".to_string()),
+                        16..17,
+                    ))),
+
+                    op: Token::new(Kind::Less, 18..19),
+                    right: Box::new(Expr::Literal(Token::new(Kind::Number(5.0), 20..21))),
+                }),
+
+                body: Box::new(Stmt::Block(vec![
+                    Box::new(Stmt::Block(vec![Box::new(Stmt::Print(Box::new(
+                        Expr::Variable(Token::new(Kind::Identifier("x".to_string()), 41..42)),
+                    )))])),
+                    Box::new(Stmt::Expr(Box::new(Expr::Assign {
+                        name: Token::new(Kind::Identifier("x".to_string()), 23..24),
+                        value: Box::new(Expr::Binary {
+                            left: Box::new(Expr::Variable(Token::new(
+                                Kind::Identifier("x".to_string()),
+                                27..28,
+                            ))),
+                            op: Token::new(Kind::Plus, 29..30),
+                            right: Box::new(Expr::Literal(Token::new(Kind::Number(1.0), 31..32))),
+                        }),
+                    }))),
+                ])),
+            }),
+        ]));
 
         assert_eq!(stmts[0], expected);
     }
