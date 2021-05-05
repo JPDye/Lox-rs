@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+
     /// statement ---> exprStmt | forStmt | ifStmt | printStmt | whileStmt | block
     fn statement(&mut self) -> Result<Stmt, ParsingError> {
         let peeked = self.peek();

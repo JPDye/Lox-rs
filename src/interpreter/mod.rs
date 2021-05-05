@@ -92,6 +92,34 @@ impl<W: Write> Interpreter<'_, W> {
         Ok(())
     }
 
+    fn visit_if_statement(
+        &mut self,
+        condition: Box<Expr>,
+        if_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    ) -> Result<(), RuntimeError> {
+        let bool = self.evaluate_expression(condition)?;
+
+        if is_truthy(&bool) {
+            self.execute_statement(if_branch)?;
+        } else if else_branch.is_some() {
+            self.execute_statement(else_branch.unwrap())?;
+        }
+
+        Ok(())
+    }
+
+    fn visit_while_statement(
+        &mut self,
+        condition: Box<Expr>,
+        body: Box<Stmt>,
+    ) -> Result<(), RuntimeError> {
+        while is_truthy(&self.evaluate_expression(condition.clone())?) {
+            self.execute_statement(body.clone())?;
+        }
+        Ok(())
+    }
+
     fn visit_expression_statement(&mut self, expr: Box<Expr>) -> Result<(), RuntimeError> {
         self.evaluate_expression(expr)?;
         Ok(())
@@ -463,10 +491,10 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("5", output.trim());
-    }
+  }
 
     #[test]
-    fn test_for_statement() {
+    fn test_for_statement() 
         let input = "\
             for (var x = 0; x < 5; x = x + 1) {
                 print x;
