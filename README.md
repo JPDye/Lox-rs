@@ -4,3 +4,7 @@
   <p align="center">
     <img src="https://github.com/JPDye/Lox-rs/blob/main/images/hq_repl_sc_1.png" />
   </p>
+  
+  <p align="center">
+    <img src="https://github.com/JPDye/Lox-rs/blob/main/images/hq_repl_sc_2.png" />
+  </p>
