@@ -86,7 +86,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-
     /// statement ---> exprStmt | forStmt | ifStmt | printStmt | whileStmt | block
     fn statement(&mut self) -> Result<Stmt, ParsingError> {
         let peeked = self.peek();
@@ -153,9 +152,6 @@ impl<'a> Parser<'a> {
             Kind::RightParen => None,
             _ => Some(self.expression()?),
         };
-
-        // Consume semicolon regardless of condition's presence.
-        self.consume(Kind::SemiColon)?;
 
         // Consume closing paren of the "header".
         self.consume(Kind::RightParen)?;
@@ -401,7 +397,7 @@ impl<'a> Parser<'a> {
         Ok(lhs)
     }
 
-    /// unary ---> ( ( "-" | "!" ) unary ) | primary;
+    /// unary ---> ( ( "-" | "!" ) unary ) | call;
     fn unary(&mut self) -> Result<Expr, ParsingError> {
         if self.check(&[Kind::Minus, Kind::Bang]) {
             let op = self.next();
@@ -414,7 +410,55 @@ impl<'a> Parser<'a> {
 
             return Ok(node);
         }
-        return self.primary();
+        return self.call();
+    }
+
+    /// call ---> primary ( "(" arguments? ")" )*
+    fn call(&mut self) -> Result<Expr, ParsingError> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.check(&[Kind::LeftParen]) {
+                // Consume opening paren
+                self.consume(Kind::LeftParen)?;
+
+                // Get list of arguments
+                let arguments = self.arguments()?;
+
+                // Consume closing paren
+                let paren = self.consume(Kind::RightParen)?;
+
+                // Build Call AST
+                expr = Expr::Call {
+                    callee: Box::new(expr),
+                    paren,
+                    arguments,
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    /// arguments ---> expression ( "," expression )*
+    fn arguments(&mut self) -> Result<Vec<Box<Expr>>, ParsingError> {
+        // Consume first argument
+        let mut arguments = Vec::new();
+
+        // If-statement handles zero-argument case
+        if !self.check(&[Kind::RightParen]) {
+            arguments.push(Box::new(self.expression()?));
+
+            // Consume any additional arguments and the separating commas
+            while self.check(&[Kind::Comma]) {
+                self.consume(Kind::Comma)?;
+                arguments.push(Box::new(self.expression()?));
+            }
+        }
+
+        Ok(arguments)
     }
 
     /// primary ---> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER
@@ -796,9 +840,7 @@ mod tests {
             print x;\
         }";
 
-        let (stmts, e) = parse_input(input);
-
-        println!("{:?}", e);
+        let (stmts, _) = parse_input(input);
 
         let expected = Box::new(Stmt::Block(vec![
             Box::new(Stmt::Variable {
@@ -811,11 +853,9 @@ mod tests {
                         Kind::Identifier("x".to_string()),
                         16..17,
                     ))),
-
                     op: Token::new(Kind::Less, 18..19),
                     right: Box::new(Expr::Literal(Token::new(Kind::Number(5.0), 20..21))),
                 }),
-
                 body: Box::new(Stmt::Block(vec![
                     Box::new(Stmt::Block(vec![Box::new(Stmt::Print(Box::new(
                         Expr::Variable(Token::new(Kind::Identifier("x".to_string()), 41..42)),
@@ -834,6 +874,76 @@ mod tests {
                 ])),
             }),
         ]));
+
+        assert_eq!(stmts[0], expected);
+    }
+
+    #[test]
+    fn parse_function_calls() {
+        // No currying, no arguments.
+        let input = "function();";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Expr(Box::new(Expr::Call {
+            callee: Box::new(Expr::Variable(Token::new(
+                Kind::Identifier("function".to_string()),
+                0..8,
+            ))),
+            paren: Token::new(Kind::RightParen, 9..10),
+            arguments: vec![],
+        })));
+
+        assert_eq!(stmts[0], expected);
+
+        // Currying, no arguments.
+        let input = "function()();";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Expr(Box::new(Expr::Call {
+            callee: Box::new(Expr::Call {
+                callee: Box::new(Expr::Variable(Token::new(
+                    Kind::Identifier("function".to_string()),
+                    0..8,
+                ))),
+                paren: Token::new(Kind::RightParen, 9..10),
+                arguments: vec![],
+            }),
+
+            paren: Token::new(Kind::RightParen, 11..12),
+            arguments: vec![],
+        })));
+
+        assert_eq!(stmts[0], expected);
+
+        // Currying and arguments.
+        let input = "function(arg_one)(arg_two, arg_three);";
+        let (stmts, _) = parse_input(input);
+
+        let expected = Box::new(Stmt::Expr(Box::new(Expr::Call {
+            callee: Box::new(Expr::Call {
+                callee: Box::new(Expr::Variable(Token::new(
+                    Kind::Identifier("function".to_string()),
+                    0..8,
+                ))),
+                paren: Token::new(Kind::RightParen, 16..17),
+                arguments: vec![Box::new(Expr::Variable(Token::new(
+                    Kind::Identifier("arg_one".to_string()),
+                    9..16,
+                )))],
+            }),
+
+            paren: Token::new(Kind::RightParen, 36..37),
+            arguments: vec![
+                Box::new(Expr::Variable(Token::new(
+                    Kind::Identifier("arg_two".to_string()),
+                    18..25,
+                ))),
+                Box::new(Expr::Variable(Token::new(
+                    Kind::Identifier("arg_three".to_string()),
+                    27..36,
+                ))),
+            ],
+        })));
 
         assert_eq!(stmts[0], expected);
     }

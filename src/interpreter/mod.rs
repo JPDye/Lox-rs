@@ -92,34 +92,6 @@ impl<W: Write> Interpreter<'_, W> {
         Ok(())
     }
 
-    fn visit_if_statement(
-        &mut self,
-        condition: Box<Expr>,
-        if_branch: Box<Stmt>,
-        else_branch: Option<Box<Stmt>>,
-    ) -> Result<(), RuntimeError> {
-        let bool = self.evaluate_expression(condition)?;
-
-        if is_truthy(&bool) {
-            self.execute_statement(if_branch)?;
-        } else if else_branch.is_some() {
-            self.execute_statement(else_branch.unwrap())?;
-        }
-
-        Ok(())
-    }
-
-    fn visit_while_statement(
-        &mut self,
-        condition: Box<Expr>,
-        body: Box<Stmt>,
-    ) -> Result<(), RuntimeError> {
-        while is_truthy(&self.evaluate_expression(condition.clone())?) {
-            self.execute_statement(body.clone())?;
-        }
-        Ok(())
-    }
-
     fn visit_expression_statement(&mut self, expr: Box<Expr>) -> Result<(), RuntimeError> {
         self.evaluate_expression(expr)?;
         Ok(())
@@ -164,6 +136,7 @@ impl<W: Write> Interpreter<'_, W> {
             Expr::Variable(ident) => self.visit_variable_usage_expr(ident),
             Expr::Assign { name, value } => self.visit_variable_assign_expr(name, value),
             Expr::Logical { left, op, right } => self.visit_logical_expr(left, op, right),
+            _ => todo!(),
         }
     }
 
@@ -303,7 +276,14 @@ mod tests {
     fn interpret_and_capture(input: &str) -> String {
         let mut buf = Vec::new();
 
-        let (stmts, _) = parse_input(input);
+        let (stmts, errors) = parse_input(input);
+
+        if !errors.is_empty() {
+            for error in errors {
+                println!("{:?}", error);
+            }
+        }
+
         let mut interpreter = Interpreter::new(&mut buf);
         interpreter.interpret(stmts);
 
@@ -491,10 +471,10 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("5", output.trim());
-  }
+    }
 
     #[test]
-    fn test_for_statement() 
+    fn test_for_statement() {
         let input = "\
             for (var x = 0; x < 5; x = x + 1) {
                 print x;
@@ -503,7 +483,5 @@ mod tests {
 
         let output = interpret_and_capture(input);
         assert_eq!("0\n1\n2\n3\n4", output.trim());
-
-        let input
     }
 }
